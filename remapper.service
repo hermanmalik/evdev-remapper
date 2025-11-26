@@ -1,0 +1,18 @@
+[Unit]
+Description=Keyboard remapper
+After=multi-user.target
+# Ensure it starts after the input subsystem is ready
+After=systemd-udev-settle.service
+
+[Service]
+Type=simple
+ExecStart=/home/herman/HMD/proj/remapper/numlock.py /dev/input/event0
+Restart=always
+RestartSec=1
+# Run as root (required for input device access)
+User=root
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/remapper.service
