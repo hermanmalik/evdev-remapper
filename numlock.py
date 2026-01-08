@@ -43,6 +43,9 @@ for event in dev.read_loop():  # generator, as opposed to while on libevdev_next
                 ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTALT, 1)
                 ui.syn()
                 time.sleep(0.01)
+                ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 1)
+                ui.syn()
+                time.sleep(0.01)
                 ui.write(ecodes.EV_KEY, ecodes.KEY_TAB, 1)
                 ui.syn()
                 time.sleep(0.01)
@@ -50,6 +53,9 @@ for event in dev.read_loop():  # generator, as opposed to while on libevdev_next
                 ui.syn()
                 time.sleep(0.05)
                 ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTALT, 0)
+                ui.syn()
+                time.sleep(0.01)
+                ui.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 0)
                 ui.syn()
             else:
                 # RAlt was used as Level 3 shift - emit the release
@@ -71,13 +77,13 @@ for event in dev.read_loop():  # generator, as opposed to while on libevdev_next
         ralt_used_as_modifier = True
 
     # Numlock only works when shift is held
-    if event.code == ecodes.KEY_LEFTSHIFT:
-        shift_state['left'] = bool(event.value)
-    elif event.code == ecodes.KEY_RIGHTSHIFT:
-        shift_state['right'] = bool(event.value)
-    elif event.code == ecodes.KEY_NUMLOCK:
-        if not any(shift_state.values()):
-            continue
+    #if event.code == ecodes.KEY_LEFTSHIFT:
+    #    shift_state['left'] = bool(event.value)
+    #elif event.code == ecodes.KEY_RIGHTSHIFT:
+    #    shift_state['right'] = bool(event.value)
+    #elif event.code == ecodes.KEY_NUMLOCK:
+    #    if not any(shift_state.values()):
+    #        continue
     
     ui.write_event(event)
     ui.syn()
