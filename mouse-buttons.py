@@ -17,11 +17,14 @@ vmousebuttons = UInput.from_device(playpausefd, name='mouse-remapper-button')
 vkbd = UInput({
     ecodes.EV_KEY: [
         ecodes.KEY_LEFTCTRL,
+        ecodes.KEY_LEFTSHIFT,
+        ecodes.KEY_RIGHTSHIFT,
         ecodes.KEY_C,
         ecodes.KEY_PLAYPAUSE,
         ecodes.KEY_NEXTSONG,
         ecodes.KEY_PREVIOUSSONG
-    ]
+    ],
+    ecodes.EV_MSC: [ecodes.MSC_SCAN]
 }, name='mouse-remapper-kbd')
 
 # state
@@ -65,6 +68,7 @@ while True:
             # BTN_SIDE + Shift → Previous
             if event.code == ecodes.BTN_SIDE and shift_pressed:
                 print("side button")
+                vkbd.write(ecodes.EV_MSC, ecodes.MSC_SCAN, 0x90)
                 vkbd.write(ecodes.EV_KEY, ecodes.KEY_PREVIOUSSONG, event.value)
                 vkbd.syn()
                 continue
@@ -72,6 +76,7 @@ while True:
             # BTN_EXTRA + Shift → Next
             if event.code == ecodes.BTN_EXTRA and shift_pressed:
                 print("extra button")
+                vkbd.write(ecodes.EV_MSC, ecodes.MSC_SCAN, 0x99)
                 vkbd.write(ecodes.EV_KEY, ecodes.KEY_NEXTSONG, event.value)
                 vkbd.syn()
                 continue
@@ -86,8 +91,32 @@ while True:
             if event.type == ecodes.EV_KEY and event.code == ecodes.KEY_PLAYPAUSE:
                 if shift_pressed:
                     print("middle button shift -> playpause")
+                    print(f"Playpause event, value={event.value}, shift={shift_pressed}")
+                    
+                    # Release any held shifts
+                    if shift_state['left']:
+                        vkbd.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
+                        vkbd.syn()
+                    if shift_state['right']:
+                        vkbd.write(ecodes.EV_KEY, ecodes.KEY_RIGHTSHIFT, 0)
+                        vkbd.syn()
+                    time.sleep(0.01)
+                    
+                    # Send play/pause
+                    vkbd.write(ecodes.EV_MSC, ecodes.MSC_SCAN, 0xc00cd)
                     vkbd.write(ecodes.EV_KEY, ecodes.KEY_PLAYPAUSE, event.value)
                     vkbd.syn()
+                    
+                    # Restore shifts if still held
+                    # time.sleep(0.01)
+                    # if shift_state['left']:
+                    #     vkbd.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
+                    #     vkbd.syn()
+                    # if shift_state['right']:
+                    #     vkbd.write(ecodes.EV_KEY, ecodes.KEY_RIGHTSHIFT, 1)
+                    #     vkbd.syn()
+                    # vmousebuttons.write_event(event)
+                    # vmousebuttons.syn()
                 else:
                     print("middle button -> ctrl c")
                     vkbd.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 1)
@@ -101,7 +130,6 @@ while True:
                     time.sleep(0.01)
                     vkbd.write(ecodes.EV_KEY, ecodes.KEY_LEFTCTRL, 0)
                     vkbd.syn()
-                continue
-
-            vmousebuttons.write_event(event)
-            vmousebuttons.syn()
+            else:
+                vmousebuttons.write_event(event)
+                vmousebuttons.syn()
