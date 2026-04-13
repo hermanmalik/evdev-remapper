@@ -5,7 +5,7 @@ import sys
 import signal
 import time
 
-### SETUP ###
+# setup
 dev = InputDevice(sys.argv[1])
 dev.grab()
 ui = UInput.from_device(dev, name='keyboard-remapper')
@@ -32,14 +32,14 @@ class HoldTapLayer:
                  lock_key=None, consume_unmapped=True):
         self.key = key
         self.layer = layer
-        self.tap_keys = tap_keys      # keys to tap on short press, or None
-        self.tap_timeout = tap_timeout
-        self.lock_key = lock_key       # if set, this key toggles lock while held
+        self.tap_keys = tap_keys        # keys to tap on short press, or None
+        self.tap_timeout = tap_timeout  # delay before nav layer activates
+        self.lock_key = lock_key        # if set, this key toggles lock while held
         self.consume_unmapped = consume_unmapped
 
-        self.pressed = False
-        self.used = False
-        self.time = 0
+        self.pressed = False            # is self.key down?
+        self.used = False               # is anything from the layer down?
+        self.time = 0                   # how long has self.key been down?
         self.locked = False
         self.active_keys = {}
 
@@ -47,64 +47,59 @@ class HoldTapLayer:
     def active(self):
         return self.pressed != self.locked  # XOR; locked inverts
 
-    def handle_key(self, event):
-        if event.code != self.key:
-            return event
-        if event.value == 1:
-            self.pressed = True
-            self.used = False
-            self.time = time.time()
-        elif event.value == 0:
-            self.pressed = False
-            if not self.used and (time.time() - self.time) < self.tap_timeout:
-                if self.tap_keys:
-                    tap(*self.tap_keys)
-        return None
+    def handle(self, event):
+        # handle the main trigger key
+        if event.code == self.key:
+            if event.value == 1:
+                self.pressed = True
+                self.used = False
+                self.time = time.time()
+            elif event.value == 0:
+                self.pressed = False
+                if not self.used and (time.time() - self.time) < self.tap_timeout:
+                    if self.tap_keys:
+                        tap(*self.tap_keys)
+            return None
 
-    def handle_lock(self, event):
-        if self.lock_key is None or event.code != self.lock_key:
-            return event
-        if self.pressed and event.value == 1:
+        # handle the lock key
+        if self.lock_key and event.code == self.lock_key and self.pressed and event.value == 1:
             self.locked = not self.locked
             self.used = True
             return None
-        return event
 
-    def handle_active_release(self, event):
-        if event.code not in self.active_keys:
-            return event
-        target, mods = self.active_keys[event.code]
-        if event.value == 0:
-            emit(target, 0)
-            for m in reversed(mods): emit(m, 0)
-            del self.active_keys[event.code]
-        elif event.value == 2:
-            emit(target, 2)
-        return None
-
-    def handle_layer_press(self, event):
-        # mark as used regardless of lock state
-        if self.pressed and event.value == 1 and event.code in self.layer:
-            self.used = True
-
-        if not self.active:
-            return event
-
-        if event.code in self.layer and event.value == 1:
-            target, mods = self.layer[event.code]
-            self.active_keys[event.code] = (target, mods)
-            for m in mods: emit(m, 1)
-            emit(target, 1)
+        # release/repeat of previously mapped keys
+        if event.code in self.active_keys:
+            target, mods = self.active_keys[event.code]
+            if event.value == 0:
+                emit(target, 0)
+                for m in reversed(mods): emit(m, 0)
+                del self.active_keys[event.code]
+            elif event.value == 2:
+                emit(target, 2)
             return None
 
-        return None if self.consume_unmapped else event
+        # layer inactive - pass through, but mark used if hold key is
+        # down and a mapped key was pressed (prevents spurious tap)
+        if not self.active:
+            if self.pressed and event.value == 1 and event.code in self.layer:
+                self.used = True
+            return event
 
-    def handlers(self):
-        h = [self.handle_key]
-        if self.lock_key is not None:
-            h.append(self.handle_lock)
-        h.extend([self.handle_active_release, self.handle_layer_press])
-        return h
+        # layer active: mapped keydown gets remapped
+        if event.value == 1:
+            self.used = True
+            if event.code in self.layer:
+                target, mods = self.layer[event.code]
+                self.active_keys[event.code] = (target, mods)
+                for m in mods: emit(m, 1)
+                emit(target, 1)
+            return None  # consume all presses while active
+            # minor issue with orphan releases: the release is passed through
+            # harmless but fixing would require tracking which presses were consumed
+
+        # releases/repeats of unmapped keys pass through (avoids stuck keys)
+        return event
+
 
 nav = HoldTapLayer(
     key=ecodes.KEY_ESC,  # post caps/esc swap = physical capslock
@@ -122,9 +117,9 @@ nav = HoldTapLayer(
         ecodes.KEY_R:  (ecodes.KEY_PAGEUP,    []),
         ecodes.KEY_F:  (ecodes.KEY_PAGEDOWN,  []),
         ecodes.KEY_Z:  (ecodes.KEY_BACKSPACE, [ecodes.KEY_LEFTCTRL]),
-        ecodes.KEY_X:  (ecodes.KEY_DELETE,    [ecodes.KEY_LEFTCTRL]),
-        ecodes.KEY_C:  (ecodes.KEY_BACKSPACE, []),
-        ecodes.KEY_V:  (ecodes.KEY_DELETE,    []),
+        ecodes.KEY_X:  (ecodes.KEY_BACKSPACE, []),
+        ecodes.KEY_C:  (ecodes.KEY_DELETE,    []),
+        ecodes.KEY_V:  (ecodes.KEY_DELETE,    [ecodes.KEY_LEFTCTRL]),
     },
 )
 
@@ -143,6 +138,18 @@ alt_layer = HoldTapLayer(
         ecodes.KEY_C:  (ecodes.KEY_KP3, []),
     },
 )
+
+
+### MACROS ###
+
+MACROS = {}
+
+def handle_macros(event):
+    if event.code in MACROS and event.value == 1:
+        for keycode in MACROS[event.code]:
+            tap(keycode)
+        return None
+    return event
 
 
 ### STANDALONE HANDLERS ###
@@ -206,8 +213,9 @@ active_handlers = [
     handle_nonkey,
     handle_ralt,
     handle_swap_caps_esc,
-    *alt_layer.handlers(),
-    *nav.handlers(),
+    alt_layer.handle,
+    nav.handle,
+    handle_macros,
 ]
 
 for event in dev.read_loop():

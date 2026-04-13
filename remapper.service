@@ -6,7 +6,7 @@ After=systemd-udev-settle.service
 
 [Service]
 Type=simple
-ExecStart=/home/herman/HMD/proj/remapper/numlock.py /dev/input/event0
+ExecStart=/home/herman/HMD/proj/remapper/remapper.py /dev/input/event0
 Restart=always
 RestartSec=1
 # Run as root (required for input device access)
