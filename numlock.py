@@ -24,16 +24,18 @@ ui = UInput.from_device(dev, name='keyboard-remapper') # libevdev_uinput_create_
 #       - check which layer we are in and handle keyup remappings
 #       - change layer if necessary
 #   - on repeat:
-#       - 
+#       -
 #   - on keydown:
-#       - look for 
+#       - look for
 
 
 # state
 shift_state = {'left': False, 'right': False}
 ralt_state = {'pressed': False, 'used': False}
 nav_state = {'pressed': False, 'used': False, 'time': 0, 'locked': False}
-nav_active_keys = {}  # maps original key -> (target, mods) 
+nav_active_keys = {}  # maps original key -> (target, mods)
+alt_state = {'pressed': False, 'used': False, 'time': 0}
+alt_active_keys = {}  # maps original key -> (target, mods)
 
 # nav layer
 NAV_KEY = ecodes.KEY_ESC
@@ -41,22 +43,27 @@ NAV_LOCK = ecodes.KEY_TAB
 NAVKEY_TAP_TIMEOUT = 0.2  # 200ms
 NAV_LAYER = {
     # navigation
-    ecodes.KEY_J:           (ecodes.KEY_LEFT,      [ecodes.KEY_LEFTCTRL]),
-    ecodes.KEY_L:           (ecodes.KEY_RIGHT,     [ecodes.KEY_LEFTCTRL]),
-    ecodes.KEY_U:           (ecodes.KEY_LEFT,      []),
-    ecodes.KEY_O:           (ecodes.KEY_RIGHT,     []),
-    ecodes.KEY_H:           (ecodes.KEY_HOME,      []),
-    ecodes.KEY_SEMICOLON:   (ecodes.KEY_END,       []),
-    ecodes.KEY_I:           (ecodes.KEY_UP,        []),
-    ecodes.KEY_K:           (ecodes.KEY_DOWN,      []),
-    ecodes.KEY_Y:           (ecodes.KEY_PAGEUP,    []),
-    ecodes.KEY_P:           (ecodes.KEY_PAGEDOWN,  []),
+    ecodes.KEY_A:           (ecodes.KEY_LEFT,      [ecodes.KEY_LEFTCTRL]),
+    ecodes.KEY_D:           (ecodes.KEY_RIGHT,     [ecodes.KEY_LEFTCTRL]),
+    ecodes.KEY_Q:           (ecodes.KEY_LEFT,      []),
+    ecodes.KEY_E:           (ecodes.KEY_RIGHT,     []),
+    ecodes.KEY_1:           (ecodes.KEY_HOME,      []),
+    ecodes.KEY_3:           (ecodes.KEY_END,       []),
+    ecodes.KEY_W:           (ecodes.KEY_UP,        []),
+    ecodes.KEY_S:           (ecodes.KEY_DOWN,      []),
+    ecodes.KEY_R:           (ecodes.KEY_PAGEUP,    []),
+    ecodes.KEY_F:           (ecodes.KEY_PAGEDOWN,  []),
     # delete and backspace
-    ecodes.KEY_M:           (ecodes.KEY_BACKSPACE, [ecodes.KEY_LEFTCTRL]),
-    ecodes.KEY_DOT:         (ecodes.KEY_DELETE,    [ecodes.KEY_LEFTCTRL]),
-    ecodes.KEY_N:           (ecodes.KEY_BACKSPACE, []),
-    ecodes.KEY_SLASH:       (ecodes.KEY_DELETE,    []),
-    # window switching
+    ecodes.KEY_Z:           (ecodes.KEY_BACKSPACE, [ecodes.KEY_LEFTCTRL]),
+    ecodes.KEY_X:           (ecodes.KEY_BACKSPACE, []),
+    ecodes.KEY_C:           (ecodes.KEY_DELETE,    []),
+    ecodes.KEY_V:           (ecodes.KEY_DELETE,    [ecodes.KEY_LEFTCTRL]),
+}
+
+# alt layer (window switching)
+ALT_KEY = ecodes.KEY_LEFTALT
+ALTKEY_TAP_TIMEOUT = 0.2
+ALT_LAYER = {
     ecodes.KEY_Q:           (ecodes.KEY_KP7,       []),
     ecodes.KEY_W:           (ecodes.KEY_KP8,       []),
     ecodes.KEY_E:           (ecodes.KEY_KP9,       []),
@@ -67,6 +74,7 @@ NAV_LAYER = {
     ecodes.KEY_X:           (ecodes.KEY_KP2,       []),
     ecodes.KEY_C:           (ecodes.KEY_KP3,       []),
 }
+
 MACROS = {
     # ecodes.KEY_T: [ecodes.KEY_H, ecodes.KEY_E, ecodes.KEY_R,
     #                 ecodes.KEY_M, ecodes.KEY_A, ecodes.KEY_N],
@@ -181,12 +189,52 @@ def handle_nav_layer_press(event):
 
     if event.code not in NAV_LAYER or event.value != 1:
         return None
-    
+
     target, mods = NAV_LAYER[event.code]
     nav_active_keys[event.code] = (target, mods)
     for m in mods: emit(m, 1)
     emit(target, 1)
     return None
+
+# alt layer handlers
+def handle_alt_key(event):
+    if event.code != ALT_KEY:
+        return event
+
+    if event.value == 1:
+        alt_state.update(pressed=True, used=False)
+        alt_state['time'] = time.time()
+    elif event.value == 0:
+        alt_state['pressed'] = False
+        if not alt_state['used'] and (time.time() - alt_state['time']) < ALTKEY_TAP_TIMEOUT:
+            tap(ALT_KEY)
+    return None
+
+def handle_alt_active_release(event):
+    if event.code not in alt_active_keys:
+        return event
+    target, mods = alt_active_keys[event.code]
+    if event.value == 0:
+        emit(target, 0)
+        for m in reversed(mods): emit(m, 0)
+        del alt_active_keys[event.code]
+    elif event.value == 2:
+        emit(target, 2)
+    return None
+
+def handle_alt_layer_press(event):
+    if not alt_state['pressed']:
+        return event
+
+    if event.value == 1 and event.code in ALT_LAYER:
+        alt_state['used'] = True
+        target, mods = ALT_LAYER[event.code]
+        alt_active_keys[event.code] = (target, mods)
+        for m in mods: emit(m, 1)
+        emit(target, 1)
+        return None
+
+    return None  # consume all keys while alt layer active
 
 def handle_macros(event):
     if event.code in MACROS and event.value == 1:
@@ -202,6 +250,9 @@ active_handlers = [
     handle_ralt,
     # handle_numlock,
     handle_swap_caps_esc,
+    handle_alt_key,
+    handle_alt_active_release,
+    handle_alt_layer_press,
     handle_nav_key,
     handle_nav_lock_toggle,
     handle_nav_active_release,
@@ -209,7 +260,7 @@ active_handlers = [
     handle_macros,
 ]
 
-for event in dev.read_loop():  # generator, as opposed to while on libevdev_next_event
+for event in dev.read_loop():
     for handler in active_handlers:
         event = handler(event)
         if event is None:
